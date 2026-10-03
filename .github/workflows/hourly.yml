@@ -1,0 +1,47 @@
+name: OSM #ttmappyhour hourly quality check
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # 7 minutes past every hour, UTC -- avoids GitHub's
+                            # scheduler congestion at the top of the hour
+  workflow_dispatch: {}
+
+concurrency:
+  group: osm-quality-check-hourly
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run-quality-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run quality check
+        env:
+          OSMCHA_TOKEN: ${{ secrets.OSMCHA_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          QC_SLACK_ENABLED: "0"
+        run: python main.py
+
+      - name: Commit updated data back to the repo
+        if: always()
+        run: |
+          git config user.name "osm-quality-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Quality check run $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase origin master
+          git push
